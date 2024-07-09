@@ -1,39 +1,80 @@
+""" cj.py -- https://www.github.com/takeiteasy/cj
+
+cj.py is forked from https://github.com/gilzoide/c_api_extract-py and
+keeps the original UNLICENSE license
+
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or
+distribute this software, either in source code form or as a compiled
+binary, for any purpose, commercial or non-commercial, and by any
+means.
+
+In jurisdictions that recognize copyright laws, the author or authors
+of this software dedicate any and all copyright interest in the
+software to the public domain. We make this dedication for the benefit
+of the public at large and to the detriment of our heirs and
+successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <http://unlicense.org/>
+
+usage: cj.py [-h] [--clang PATH] [--args ARGS [ARGS ...]] [--lib PATH]
+             [--include-headers FILTER [FILTER ...]]
+             [--include-definitions FILTER [FILTER ...]]
+             [--exclude-definitions FILTER [FILTER ...]] [--output PATH]
+             [--skip-defines] [--type-objects] [--compact]
+             HEADERS [HEADERS ...]
+
+Serialise C headers to JSON w/ python + libclang!
+
+positional arguments:
+  HEADERS               Path to header file(s) to process
+
+options:
+  -h, --help            show this help message and exit
+  --clang PATH          Specify the path to `clang`
+  --args ARGS [ARGS ...]
+                        Pass arguments through to clang
+  --lib PATH            Specify the path to clang library or directory
+  --include-headers FILTER [FILTER ...]
+                        Only process headers with names that match any of the
+                        given regex patterns. Matches are tested using
+                        `re.search`, so patterns are not anchored by default.
+                        This may be used to avoid processing standard headers
+                        and dependencies headers.
+  --include-definitions FILTER [FILTER ...]
+                        Only include definitions that match given regex
+                        filters
+  --exclude-definitions FILTER [FILTER ...]
+                        Exclude any definitions that match given regex filters
+                        (overwriten by --include-definitions)
+  --output PATH         Specify the file or directory to dump JSON to.
+                        (default: dump to stdout)
+  --skip-defines        By default, cj will try compiling object-like macros
+                        looking for constants, which may take long if your
+                        header has lots of them. Use this flag to skip this
+                        step
+  --type-objects        Output type objects instead of simply the type
+                        spelling string
+  --compact             Output minified JSON instead of using 0 space
+                        indentations
 """
-Usage:
-  c_api_extract <input> [-i <include_pattern>...] [options] [-- <clang_args>...]
-  c_api_extract -h
 
-General options:
-  -h, --help              Show this help message.
-  --version               Show the version and exit.
-
-Filtering options:
-  -i, --include=<include_pattern>
-                          Only process headers with names that match any of the given regex patterns.
-                          Matches are tested using `re.search`, so patterns are not anchored by default.
-                          This may be used to avoid processing standard headers and dependencies headers.
-
-Output modifier options:
-  --compact               Output minified JSON instead of using 2 space indentations.
-  --type-objects          Output type objects instead of simply the type spelling string.
-  --skip-defines          By default, c_api_extract will try compiling object-like macros looking for
-                          constants, which may take long if your header has lots of them. Use this flag
-                          to skip this step.
-"""
-
+import re, json, sys, os, subprocess, tempfile, argparse
 from collections import OrderedDict
-import json
 from pathlib import Path, PurePath
-import re
 from signal import signal, SIGPIPE, SIG_DFL
-import subprocess
-import tempfile
-
-from docopt import docopt
 import clang.cindex as clang
-
-
-__version__ = '0.7.0'
 
 ANONYMOUS_SUB_RE = re.compile(r'(.*/|\W)')
 UNION_STRUCT_NAME_RE = re.compile(r'(union|struct)\s+(.+)')
@@ -373,9 +414,12 @@ class Visitor:
         self.parsed_headers = set()
         self.potential_constants = []
 
-    def parse_header(self, header_path, clang_args=[], include_patterns=[], type_objects=False,
-                     skip_defines=False):
+    def parse_header(self, header_path, clang_path=None, clang_args=[], include_headers=[], include_patterns=[], exclude_patterns=[], type_objects=False, skip_defines=False):
+        self.clang_path = clang_path if clang_path else "clang"
+        include_headers = [re.compile(p) for p in include_headers] or [MATCH_ALL_RE]
         include_patterns = [re.compile(p) for p in include_patterns] or [MATCH_ALL_RE]
+        exclude_patterns = [re.compile(p) for p in exclude_patterns] or []
+
         with tempfile.NamedTemporaryFile() as ast_file:
             clang_stdout = self.run_clang(header_path, ['-emit-ast'] + clang_args)
             ast_file.write(clang_stdout)
@@ -384,14 +428,14 @@ class Visitor:
         self.type_objects = type_objects
         self.skip_defines = skip_defines
         for cursor in tu.cursor.get_children():
-            self.process(cursor, include_patterns)
+            self.process(cursor, include_headers)
         type_defs = [t for t in Type.type_declarations.values()]
         self.defs = type_defs + self.defs
         if not skip_defines:
             self.process_marked_macros(header_path, clang_args)
 
     def run_clang(self, header_path, clang_args=[], source=None):
-        clang_cmd = ['clang']
+        clang_cmd = [self.clang_path]
         clang_cmd.extend(clang_args)
         clang_cmd.extend(('-o', '-'))
         if source:
@@ -484,31 +528,64 @@ def base_type(spelling):
         print("FIXME: ", spelling)
     return (m.group(1) if m.group(3) else m.group(2)).strip() if m else spelling
 
-
 def definitions_from_header(*args, **kwargs):
     visitor = Visitor()
     visitor.parse_header(*args, **kwargs)
     return visitor.defs
 
-
-def main():
-    opts = docopt(__doc__, version=__version__)
-    try:
-        definitions = definitions_from_header(opts['<input>'],
-                                              clang_args=opts['<clang_args>'],
-                                              include_patterns=opts['--include'],
-                                              type_objects=opts['--type-objects'],
-                                              skip_defines=opts['--skip-defines'])
-        signal(SIGPIPE, SIG_DFL)
-        compact = opts.get('--compact')
-        print(json.dumps([d.to_dict(is_declaration=True) for d in definitions],
-                         indent=None if compact else 2,
-                         separators=(',', ':') if compact else None),
-              end='')
-    except CompilationError as e:
-        # clang have already dumped its errors to stderr
-        pass
-
-
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description="Serialise C headers to JSON w/ python + libclang!")
+    parser.add_argument("headers", metavar="HEADERS", type=str, nargs="+",
+                        help="Path to header file(s) to process")
+    parser.add_argument("--clang", metavar="PATH", type=str,
+                        help="Specify the path to `clang`")
+    parser.add_argument("--args", metavar="ARGS", type=str, nargs="+",
+                        help="Pass arguments through to clang")
+    parser.add_argument("--lib", metavar="PATH", type=str,
+                        help="Specify the path to clang library or directory")
+    parser.add_argument("--include-headers", metavar="FILTER", type=str, nargs="+",
+                        help="Only process headers with names that match any of the given regex patterns. Matches are tested using `re.search`, so patterns are not anchored by default. This may be used to avoid processing standard headers and dependencies headers.")
+    parser.add_argument("--include-definitions", metavar="FILTER", type=str, nargs="+",
+                        help="Only include definitions that match given regex filters")
+    parser.add_argument("--exclude-definitions", metavar="FILTER", type=str, nargs="+",
+                        help="Exclude any definitions that match given regex filters (overwriten by --include-definitions)")
+    parser.add_argument("--output", metavar="PATH", type=str,
+                        help="Specify the file or directory to dump JSON to. (default: dump to stdout)")
+    parser.add_argument("--skip-defines", action="store_true",
+                        help="By default, cj will try compiling object-like macros looking for constants, which may take long if your header has lots of them. Use this flag to skip this step")
+    parser.add_argument("--type-objects", action="store_true",
+                        help="Output type objects instead of simply the type spelling string")
+    parser.add_argument("--compact", action="store_true",
+                        help="Output minified JSON instead of using 0 space indentations")
+    args = parser.parse_args()
+
+    if args.lib:
+        if os.path.exists(args.lib):
+            if os.path.isfile(args.lib):
+                clang.Config.set_library_file(args.lib)
+            else:
+                clang.Config.set_library_path(args.lib)
+        else:
+            print("ERROR! Path \"{args.lib}\" doesn't exist")
+            sys.exit(1)
+
+    for header in args.headers:
+        if not os.path.exists(header) or not os.path.isfile(header):
+            print("ERROR! Path \"{header}\" doesn't exist")
+            sys.exit(1)
+        else:
+            try:
+                definitions = definitions_from_header(header,
+                                                      clang_path=args.clang if args.clang else None,
+                                                      clang_args=args.args if args.args else [],
+                                                      include_patterns=args.include_definitions if args.include_definitions else [],
+                                                      exclude_patterns=args.exclude_definitions if args.exclude_definitions else[],
+                                                      type_objects=args.type_objects,
+                                                      skip_defines=args.skip_defines)
+                signal(SIGPIPE, SIG_DFL)
+                print(json.dumps([d.to_dict(is_declaration=True) for d in definitions],
+                                 indent=None if args.compact else 0,
+                                 separators=(',', ':') if args.compact else None),
+                      end='')
+            except CompilationError as e:
+                pass
