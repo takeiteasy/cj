@@ -1,6 +1,6 @@
 # CJ
 
-__cj__ is a script to serialise C headers to JSON with libclang -- forked from [gilzoide/c_api_extract-py](https://github.com/gilzoide/c_api_extract-py)
+__CJ__ is a script to serialise C headers to JSON with libclang -- forked from [gilzoide/c_api_extract-py](https://github.com/gilzoide/c_api_extract-py)
 
 ![logo](/cj.jpg)
 
@@ -49,6 +49,17 @@ options:
                         indentations
 
 ```
+
+__CJ__ relies on libclang and clang's python module, here's how to set it up:
+
+```
+python3 -m venv env
+source env/bin/activate
+python3 -m pip install clang
+python3 cj.py [header-file]
+```
+
+If you are getting a `clang.cindex.LibclangError` error, you will have to specify the path to libclang with the  `--lib` option. If you are getting any other error, check your libclang version and the python module's version.
 
 ## LICENSE
 ```
