@@ -612,7 +612,7 @@ if __name__ == '__main__':
                 if args.output:
                     if os.path.exists(args.output):
                         if os.path.isfile(args.output) and not args.writeover:
-                            print("ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+                            print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
                         else:
                             parts = header.split("/")
                             folder = "/".join(parts[:-1])
@@ -620,7 +620,7 @@ if __name__ == '__main__':
                             args.output = f"{folder}/{name}.json"
                             print(args.output)
                             if (os.path.exists(args.output) and os.path.isfile(args.output)) and not args.writeover:
-                                print("ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+                                print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
                     with open(args.output, "w") as fh:
                         fh.write(json)
                 else:
