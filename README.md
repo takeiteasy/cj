@@ -7,11 +7,11 @@ __CJ__ is a script to serialise C headers to JSON with libclang -- forked from [
 ## Usage
 
 ```
-usage: cj.py [-h] [--clang PATH] [--args ARGS [ARGS ...]] [--lib PATH]
-             [--include-headers FILTER [FILTER ...]]
+usage: cj.py [-h] [-c PATH] [-x ARGS [ARGS ...]] [-l PATH]
+             [-i FILTER [FILTER ...]]
              [--include-definitions FILTER [FILTER ...]]
-             [--exclude-definitions FILTER [FILTER ...]] [--output PATH]
-             [--skip-defines] [--type-objects] [--compact]
+             [--exclude-definitions FILTER [FILTER ...]] [-o PATH] [-w] [-s]
+             [-t] [-m]
              HEADERS [HEADERS ...]
 
 Serialise C headers to JSON w/ python + libclang!
@@ -21,11 +21,12 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --clang PATH          Specify the path to `clang`
-  --args ARGS [ARGS ...]
+  -c PATH, --clang PATH
+                        Specify the path to `clang`
+  -x ARGS [ARGS ...], --args ARGS [ARGS ...]
                         Pass arguments through to clang
-  --lib PATH            Specify the path to clang library or directory
-  --include-headers FILTER [FILTER ...]
+  -l PATH, --lib PATH   Specify the path to clang library or directory
+  -i FILTER [FILTER ...], --include-headers FILTER [FILTER ...]
                         Only process headers with names that match any of the
                         given regex patterns. Matches are tested using
                         `re.search`, so patterns are not anchored by default.
@@ -36,18 +37,19 @@ options:
                         filters
   --exclude-definitions FILTER [FILTER ...]
                         Exclude any definitions that match given regex filters
-                        (overwriten by --include-definitions)
-  --output PATH         Specify the file or directory to dump JSON to.
+                        (NOTE: Overwriten by `--include-definitions` option)
+  -o PATH, --output PATH
+                        Specify the file or directory to dump JSON to.
                         (default: dump to stdout)
-  --skip-defines        By default, cj will try compiling object-like macros
+  -w, --writeover       If the output destination exists, overwrite it.
+  -s, --skip-defines    By default, cj will try compiling object-like macros
                         looking for constants, which may take long if your
                         header has lots of them. Use this flag to skip this
                         step
-  --type-objects        Output type objects instead of simply the type
+  -t, --type-objects    Output type objects instead of simply the type
                         spelling string
-  --compact             Output minified JSON instead of using 0 space
+  -m, --minified        Output minified JSON instead of using 0 space
                         indentations
-
 ```
 
 __CJ__ relies on libclang and clang's python module, here's how to set it up:

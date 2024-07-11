@@ -28,11 +28,11 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 For more information, please refer to <http://unlicense.org/>
 
-usage: cj.py [-h] [--clang PATH] [--args ARGS [ARGS ...]] [--lib PATH]
-             [--include-headers FILTER [FILTER ...]]
+usage: cj.py [-h] [-c PATH] [-x ARGS [ARGS ...]] [-l PATH]
+             [-i FILTER [FILTER ...]]
              [--include-definitions FILTER [FILTER ...]]
-             [--exclude-definitions FILTER [FILTER ...]] [--output PATH]
-             [--skip-defines] [--type-objects] [--compact]
+             [--exclude-definitions FILTER [FILTER ...]] [-o PATH] [-w] [-s]
+             [-t] [-m]
              HEADERS [HEADERS ...]
 
 Serialise C headers to JSON w/ python + libclang!
@@ -42,11 +42,12 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --clang PATH          Specify the path to `clang`
-  --args ARGS [ARGS ...]
+  -c PATH, --clang PATH
+                        Specify the path to `clang`
+  -x ARGS [ARGS ...], --args ARGS [ARGS ...]
                         Pass arguments through to clang
-  --lib PATH            Specify the path to clang library or directory
-  --include-headers FILTER [FILTER ...]
+  -l PATH, --lib PATH   Specify the path to clang library or directory
+  -i FILTER [FILTER ...], --include-headers FILTER [FILTER ...]
                         Only process headers with names that match any of the
                         given regex patterns. Matches are tested using
                         `re.search`, so patterns are not anchored by default.
@@ -57,16 +58,18 @@ options:
                         filters
   --exclude-definitions FILTER [FILTER ...]
                         Exclude any definitions that match given regex filters
-                        (overwriten by --include-definitions)
-  --output PATH         Specify the file or directory to dump JSON to.
+                        (NOTE: Overwriten by `--include-definitions` option)
+  -o PATH, --output PATH
+                        Specify the file or directory to dump JSON to.
                         (default: dump to stdout)
-  --skip-defines        By default, cj will try compiling object-like macros
+  -w, --writeover       If the output destination exists, overwrite it.
+  -s, --skip-defines    By default, cj will try compiling object-like macros
                         looking for constants, which may take long if your
                         header has lots of them. Use this flag to skip this
                         step
-  --type-objects        Output type objects instead of simply the type
+  -t, --type-objects    Output type objects instead of simply the type
                         spelling string
-  --compact             Output minified JSON instead of using 0 space
+  -m, --minified        Output minified JSON instead of using 0 space
                         indentations
 """
 
@@ -417,8 +420,8 @@ class Visitor:
     def parse_header(self, header_path, clang_path=None, clang_args=[], include_headers=[], include_patterns=[], exclude_patterns=[], type_objects=False, skip_defines=False):
         self.clang_path = clang_path if clang_path else "clang"
         include_headers = [re.compile(p) for p in include_headers] or [MATCH_ALL_RE]
-        include_patterns = [re.compile(p) for p in include_patterns] or [MATCH_ALL_RE]
-        exclude_patterns = [re.compile(p) for p in exclude_patterns] or []
+        self.include_patterns = [re.compile(p) for p in include_patterns] or None
+        self.exclude_patterns = [re.compile(p) for p in exclude_patterns] or None
 
         with tempfile.NamedTemporaryFile() as ast_file:
             clang_stdout = self.run_clang(header_path, ['-emit-ast'] + clang_args)
@@ -448,6 +451,19 @@ class Visitor:
             raise CompilationError(clang_result.stderr)
         return clang_result.stdout
 
+    def test_definition(self, def_name):
+        if self.exclude_patterns:
+            if any(pattern.search(def_name) for pattern in self.exclude_patterns):
+                if self.include_patterns:
+                    if not any(pattern.search(def_name) for pattern in self.include_patterns):
+                        return False
+                else:
+                    return False
+        elif self.include_patterns:
+            if not any(pattern.search(def_name) for pattern in self.include_patterns):
+                return False
+        return True
+
     def process(self, cursor, include_patterns):
         try:
             cwd = Path.cwd()
@@ -461,6 +477,9 @@ class Visitor:
                 self.mark_macros(filepath)
                 self.parsed_headers.add(filepath)
         except AttributeError:
+            return
+
+        if not self.test_definition(cursor.spelling):
             return
 
         if cursor.kind == clang.CursorKind.VAR_DECL:
@@ -489,6 +508,8 @@ class Visitor:
 
             clang_args = ['-x', 'c++', '-emit-ast', '-include-pch', pch_file.name] + clang_args
             for identifier in self.potential_constants:
+                if not self.test_definition(identifier):
+                    continue
                 try:
                     source = '#include "{}"\nconst auto __value = {};'.format(header_path, identifier)
                     with tempfile.NamedTemporaryFile() as ast_file:
@@ -537,25 +558,27 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Serialise C headers to JSON w/ python + libclang!")
     parser.add_argument("headers", metavar="HEADERS", type=str, nargs="+",
                         help="Path to header file(s) to process")
-    parser.add_argument("--clang", metavar="PATH", type=str,
+    parser.add_argument("-c", "--clang", metavar="PATH", type=str,
                         help="Specify the path to `clang`")
-    parser.add_argument("--args", metavar="ARGS", type=str, nargs="+",
+    parser.add_argument("-x", "--args", metavar="ARGS", type=str, nargs="+",
                         help="Pass arguments through to clang")
-    parser.add_argument("--lib", metavar="PATH", type=str,
+    parser.add_argument("-l", "--lib", metavar="PATH", type=str,
                         help="Specify the path to clang library or directory")
-    parser.add_argument("--include-headers", metavar="FILTER", type=str, nargs="+",
+    parser.add_argument("-i", "--include-headers", metavar="FILTER", type=str, nargs="+",
                         help="Only process headers with names that match any of the given regex patterns. Matches are tested using `re.search`, so patterns are not anchored by default. This may be used to avoid processing standard headers and dependencies headers.")
     parser.add_argument("--include-definitions", metavar="FILTER", type=str, nargs="+",
                         help="Only include definitions that match given regex filters")
     parser.add_argument("--exclude-definitions", metavar="FILTER", type=str, nargs="+",
-                        help="Exclude any definitions that match given regex filters (overwriten by --include-definitions)")
-    parser.add_argument("--output", metavar="PATH", type=str,
+                        help="Exclude any definitions that match given regex filters (NOTE: Overwriten by `--include-definitions` option)")
+    parser.add_argument("-o", "--output", metavar="PATH", type=str,
                         help="Specify the file or directory to dump JSON to. (default: dump to stdout)")
-    parser.add_argument("--skip-defines", action="store_true",
+    parser.add_argument("-w", "--writeover", action="store_true",
+                        help="If the output destination exists, overwrite it.")
+    parser.add_argument("-s", "--skip-defines", action="store_true",
                         help="By default, cj will try compiling object-like macros looking for constants, which may take long if your header has lots of them. Use this flag to skip this step")
-    parser.add_argument("--type-objects", action="store_true",
+    parser.add_argument("-t", "--type-objects", action="store_true",
                         help="Output type objects instead of simply the type spelling string")
-    parser.add_argument("--compact", action="store_true",
+    parser.add_argument("-m", "--minified", action="store_true",
                         help="Output minified JSON instead of using 0 space indentations")
     args = parser.parse_args()
 
@@ -583,9 +606,24 @@ if __name__ == '__main__':
                                                       type_objects=args.type_objects,
                                                       skip_defines=args.skip_defines)
                 signal(SIGPIPE, SIG_DFL)
-                print(json.dumps([d.to_dict(is_declaration=True) for d in definitions],
-                                 indent=None if args.compact else 0,
-                                 separators=(',', ':') if args.compact else None),
-                      end='')
+                json = json.dumps([d.to_dict(is_declaration=True) for d in definitions],
+                                  indent=None if args.minified else 0,
+                                  separators=(',', ':') if args.minified else None)
+                if args.output:
+                    if os.path.exists(args.output):
+                        if os.path.isfile(args.output) and not args.writeover:
+                            print("ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+                        else:
+                            parts = header.split("/")
+                            folder = "/".join(parts[:-1])
+                            name = ".".join(parts[-1].split(".")[:-1])
+                            args.output = f"{folder}/{name}.json"
+                            print(args.output)
+                            if (os.path.exists(args.output) and os.path.isfile(args.output)) and not args.writeover:
+                                print("ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+                    with open(args.output, "w") as fh:
+                        fh.write(json)
+                else:
+                    print(json, end='')
             except CompilationError as e:
                 pass
