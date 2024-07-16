@@ -460,9 +460,10 @@ class Visitor:
                 else:
                     return False
         elif self.include_patterns:
-            if not any(pattern.search(def_name) for pattern in self.include_patterns):
-                return False
-        return True
+            return any(pattern.search(def_name) for pattern in self.include_patterns)
+        else:
+            return True
+
 
     def process(self, cursor, include_patterns):
         try:
@@ -611,11 +612,12 @@ if __name__ == '__main__':
                                   separators=(',', ':') if args.minified else None)
                 if args.output:
                     if os.path.exists(args.output):
-                        if os.path.isfile(args.output) and not args.writeover:
-                            print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+                        if os.path.isfile(args.output):
+                            if not args.writeover:
+                                print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
                         else:
                             parts = header.split("/")
-                            folder = "/".join(parts[:-1])
+                            folder = args.output[:-1] if args.output[-1] == '/' else args.output
                             name = ".".join(parts[-1].split(".")[:-1])
                             args.output = f"{folder}/{name}.json"
                             print(args.output)
