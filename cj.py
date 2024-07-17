@@ -578,9 +578,9 @@ if __name__ == '__main__':
                         help="Specify the path to clang library or directory")
     parser.add_argument("-i", "--include-headers", metavar="FILTER", type=str, nargs="+",
                         help="Only process headers with names that match any of the given regex patterns. Matches are tested using `re.search`, so patterns are not anchored by default. This may be used to avoid processing standard headers and dependencies headers.")
-    parser.add_argument("--include-definitions", metavar="FILTER", type=str, nargs="+",
+    parser.add_argument("-d", "--include-definitions", metavar="FILTER", type=str, nargs="+",
                         help="Only include definitions that match given regex filters")
-    parser.add_argument("--exclude-definitions", metavar="FILTER", type=str, nargs="+",
+    parser.add_argument("-D", "--exclude-definitions", metavar="FILTER", type=str, nargs="+",
                         help="Exclude any definitions that match given regex filters (NOTE: Overwriten by `--include-definitions` option)")
     parser.add_argument("-o", "--output", metavar="PATH", type=str,
                         help="Specify the file or directory to dump JSON to. (default: dump to stdout)")
