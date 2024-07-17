@@ -410,14 +410,26 @@ class Function(Definition):
 
 
 class Visitor:
-    def __init__(self):
+    def __init__(self, header_path, clang_path=None, libclang_path=None, clang_args=[], include_headers=[], include_patterns=[], exclude_patterns=[], type_objects=False, skip_defines=False):
+        if libclang_path:
+            if os.path.exists(libclang_path):
+                try:
+                    if os.path.isfile(libclang_path):
+                        clang.Config.set_library_file(libclang_path)
+                    else:
+                        clang.Config.set_library_path(libclang_path)
+                except clang.LibclangError as e: # Failed to load library
+                    print(f"ERROR: {str(e)}")
+                except: # Error occurs when library is already loaded, skip
+                    pass
+            else:
+                print(f"ERROR! Path \"{libclang_path}\" doesn't exist")
+                sys.exit(1)
         self.defs = []
         self.typedefs = {}
         self.index = clang.Index.create()
         self.parsed_headers = set()
         self.potential_constants = []
-
-    def parse_header(self, header_path, clang_path=None, clang_args=[], include_headers=[], include_patterns=[], exclude_patterns=[], type_objects=False, skip_defines=False):
         self.clang_path = clang_path if clang_path else "clang"
         include_headers = [re.compile(p) for p in include_headers] or [MATCH_ALL_RE]
         self.include_patterns = [re.compile(p) for p in include_patterns] or None
@@ -551,9 +563,8 @@ def base_type(spelling):
     return (m.group(1) if m.group(3) else m.group(2)).strip() if m else spelling
 
 def definitions_from_header(*args, **kwargs):
-    visitor = Visitor()
-    visitor.parse_header(*args, **kwargs)
-    return visitor.defs
+    visitor = Visitor(*args, **kwargs)
+    return [d.to_dict(is_declaration=True) for d in visitor.defs]
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Serialise C headers to JSON w/ python + libclang!")
@@ -583,16 +594,6 @@ if __name__ == '__main__':
                         help="Output minified JSON instead of using 0 space indentations")
     args = parser.parse_args()
 
-    if args.lib:
-        if os.path.exists(args.lib):
-            if os.path.isfile(args.lib):
-                clang.Config.set_library_file(args.lib)
-            else:
-                clang.Config.set_library_path(args.lib)
-        else:
-            print("ERROR! Path \"{args.lib}\" doesn't exist")
-            sys.exit(1)
-
     for header in args.headers:
         if not os.path.exists(header) or not os.path.isfile(header):
             print("ERROR! Path \"{header}\" doesn't exist")
@@ -602,13 +603,14 @@ if __name__ == '__main__':
                 definitions = definitions_from_header(header,
                                                       clang_path=args.clang if args.clang else None,
                                                       clang_args=args.args if args.args else [],
+                                                      libclang_path=args.lib,
                                                       include_patterns=args.include_definitions if args.include_definitions else [],
                                                       exclude_patterns=args.exclude_definitions if args.exclude_definitions else[],
                                                       type_objects=args.type_objects,
                                                       skip_defines=args.skip_defines)
                 signal(SIGPIPE, SIG_DFL)
-                json = json.dumps([d.to_dict(is_declaration=True) for d in definitions],
-                                  indent=None if args.minified else 0,
+                json = json.dumps(definitions,
+                                  indent=None if args.minified else 4,
                                   separators=(',', ':') if args.minified else None)
                 if args.output:
                     if os.path.exists(args.output):
