@@ -377,6 +377,21 @@ class Constant(Definition):
             'type': self.type.to_dict(),
         }
 
+class AnonymousEnum(Definition):
+    def __init__(self, cursor, size):
+        super().__init__('const')
+        self.name = cursor.name
+        self.value = cursor.value
+        self.size = size
+
+    def to_dict(self, is_declaration=True):
+        d = {
+            'kind': self.kind,
+            'name': self.name,
+            'value': self.value,
+            'size': self.size
+        }
+        return d
 
 class Function(Definition):
     class Argument:
@@ -492,8 +507,14 @@ class Visitor:
         except AttributeError:
             return
 
-        if not self.test_definition(cursor.spelling):
-            return
+        if cursor.is_anonymous() and cursor.kind == clang.CursorKind.ENUM_DECL:
+            t = Type.from_clang(cursor.type)
+            for v in t.values:
+                if self.test_definition(v.name):
+                    self.defs.append(AnonymousEnum(v, t.size))
+        else:
+            if not self.test_definition(cursor.spelling):
+                return
 
         if cursor.kind == clang.CursorKind.VAR_DECL:
             new_definition = Variable(cursor)
