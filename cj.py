@@ -99,6 +99,7 @@ BUILTIN_C_DEFINITIONS = {
     "thrd_t", "mtx_t", "cnd_t",  # threads.h
     "struct tm", "time_t", "struct timespec",  # time.h
 }
+IS_CPLUSPLUSHEADER = False
 
 class CompilationError(Exception):
     pass
@@ -537,10 +538,10 @@ class Visitor:
 
     def process_marked_macros(self, header_path, clang_args=[]):
         with tempfile.NamedTemporaryFile(suffix='.pch') as pch_file:
-            clang_stdout = self.run_clang(header_path, ['-x', 'c++-header', '-Xclang', '-emit-pch'] + clang_args)
+            clang_stdout = self.run_clang(header_path, ['-x', 'c++-header' if IS_CPLUSPLUSHEADER else 'c-header', '-Xclang', '-emit-pch'] + clang_args)
             pch_file.write(clang_stdout)
 
-            clang_args = ['-x', 'c++', '-emit-ast', '-include-pch', pch_file.name] + clang_args
+            clang_args = ['-x', 'c++' if IS_CPLUSPLUSHEADER else 'c', '-emit-ast', '-include-pch', pch_file.name] + clang_args
             for identifier in self.potential_constants:
                 if not self.test_definition(identifier):
                     continue
@@ -613,7 +614,13 @@ if __name__ == '__main__':
                         help="Output type objects instead of simply the type spelling string")
     parser.add_argument("-m", "--minified", action="store_true",
                         help="Output minified JSON instead of using 0 space indentations")
+    # TODO: This should be changed to a str, specify clang -x directly, this will do for now
+    parser.add_argument("-d", "--cplusplus", action="store_true",
+                        help="Set `-x c++-header` when running clang")
     args = parser.parse_args()
+    
+    if args.cplusplus:
+        IS_CPLUSPLUSHEADER = True
 
     for header in args.headers:
         if not os.path.exists(header) or not os.path.isfile(header):
