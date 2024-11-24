@@ -615,7 +615,7 @@ if __name__ == '__main__':
     parser.add_argument("-m", "--minified", action="store_true",
                         help="Output minified JSON instead of using 0 space indentations")
     # TODO: This should be changed to a str, specify clang -x directly, this will do for now
-    parser.add_argument("-d", "--cplusplus", action="store_true",
+    parser.add_argument("-C", "--cplusplus", action="store_true",
                         help="Set `-x c++-header` when running clang")
     args = parser.parse_args()
     

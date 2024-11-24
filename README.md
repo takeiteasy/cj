@@ -48,7 +48,7 @@ options:
                         spelling string
   -m, --minified        Output minified JSON instead of using 0 space
                         indentations
-  -d, --cplusplus       Set `-x c++-header` when running clang
+  -C, --cplusplus       Set `-x c++-header` when running clang
 ```
 
 __CJ__ relies on libclang and clang's python module, here's how to set it up:
