@@ -26,12 +26,10 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 """
 
-import re, sys, os, subprocess, signal, tempfile, argparse, json
+import re, sys, os, subprocess, signal, tempfile, argparse, json, jinja2
 from collections import OrderedDict
 from pathlib import Path, PurePath
 import clang.cindex as clang
-import jinja2, os
-import platform
 
 ANONYMOUS_SUB_RE = re.compile(r'(.*/|\W)')
 UNION_STRUCT_NAME_RE = re.compile(r'(union|struct)\s+(.+)')
@@ -577,7 +575,7 @@ class Visitor:
         return self.typedefs[name] if self.has_typedef(name) else None
 
 
-def definitions_from_header(*args, **kwargs):
+def defs(*args, **kwargs):
     return Visitor(*args, **kwargs).all_definitions()
 
 class Generator:
