@@ -17,7 +17,6 @@ for header in "${HEADERS[@]}"; do
     FIXEDHEADERS+=("/tmp/$(basename "$header")")
 done
 HSTR=$(echo "${FIXEDHEADERS[@]}" | tr ' ' '\n' | paste -sd ' ' -)
-echo "$HSTR"
 ASTR=$(echo "${ARGS[@]}" | tr ' ' '\n' | paste -sd ' ' -)
 
 docker build -t cj .
