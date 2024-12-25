@@ -1,5 +1,4 @@
-""" cj.py -- https://www.github.com/takeiteasy/cj
-
+"""
 cj.py is forked from https://github.com/gilzoide/c_api_extract-py and
 keeps the original UNLICENSE license
 
@@ -25,59 +24,14 @@ IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
 OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
-
-For more information, please refer to <http://unlicense.org/>
-
-usage: cj.py [-h] [-c PATH] [-x ARGS [ARGS ...]] [-l PATH]
-             [-i FILTER [FILTER ...]]
-             [--include-definitions FILTER [FILTER ...]]
-             [--exclude-definitions FILTER [FILTER ...]] [-o PATH] [-w] [-s]
-             [-t] [-m]
-             HEADERS [HEADERS ...]
-
-Serialise C headers to JSON w/ python + libclang!
-
-positional arguments:
-  HEADERS               Path to header file(s) to process
-
-options:
-  -h, --help            show this help message and exit
-  -c PATH, --clang PATH
-                        Specify the path to `clang`
-  -x ARGS [ARGS ...], --args ARGS [ARGS ...]
-                        Pass arguments through to clang
-  -l PATH, --lib PATH   Specify the path to clang library or directory
-  -i FILTER [FILTER ...], --include-headers FILTER [FILTER ...]
-                        Only process headers with names that match any of the
-                        given regex patterns. Matches are tested using
-                        `re.search`, so patterns are not anchored by default.
-                        This may be used to avoid processing standard headers
-                        and dependencies headers.
-  --include-definitions FILTER [FILTER ...]
-                        Only include definitions that match given regex
-                        filters
-  --exclude-definitions FILTER [FILTER ...]
-                        Exclude any definitions that match given regex filters
-                        (NOTE: Overwriten by `--include-definitions` option)
-  -o PATH, --output PATH
-                        Specify the file or directory to dump JSON to.
-                        (default: dump to stdout)
-  -w, --writeover       If the output destination exists, overwrite it.
-  -s, --skip-defines    By default, cj will try compiling object-like macros
-                        looking for constants, which may take long if your
-                        header has lots of them. Use this flag to skip this
-                        step
-  -t, --type-objects    Output type objects instead of simply the type
-                        spelling string
-  -m, --minified        Output minified JSON instead of using 0 space
-                        indentations
 """
 
-import re, json, sys, os, subprocess, tempfile, argparse
+import re, sys, os, subprocess, signal, tempfile, argparse, json
 from collections import OrderedDict
 from pathlib import Path, PurePath
-from signal import signal, SIGPIPE, SIG_DFL
 import clang.cindex as clang
+import jinja2, os
+import platform
 
 ANONYMOUS_SUB_RE = re.compile(r'(.*/|\W)')
 UNION_STRUCT_NAME_RE = re.compile(r'(union|struct)\s+(.+)')
@@ -99,7 +53,6 @@ BUILTIN_C_DEFINITIONS = {
     "thrd_t", "mtx_t", "cnd_t",  # threads.h
     "struct tm", "time_t", "struct timespec",  # time.h
 }
-IS_CPLUSPLUSHEADER = False
 
 class CompilationError(Exception):
     pass
@@ -425,8 +378,34 @@ class Function(Definition):
         return d
 
 
+
+TYPE_COMPONENTS_RE = re.compile(r'([^(]*\(\**|[^[]*)(.*)')
+def typed_declaration(spelling, identifier):
+    """
+    Utility to form a typed declaration from a C type and identifier.
+    This correctly handles array lengths and function pointer arguments.
+    """
+    m = TYPE_COMPONENTS_RE.match(spelling)
+    return '{base_or_return_type}{maybe_space}{identifier}{maybe_array_or_arguments}'.format(
+        base_or_return_type=m.group(1),
+        maybe_space='' if m.group(2) else ' ',
+        identifier=identifier,
+        maybe_array_or_arguments=m.group(2) or '',
+    )
+
+
+BASE_TYPE_RE = re.compile(r'(?:\b(?:const|volatile|restrict)\b\s*)*(([^[*(]+)(\(?).*)')
+def base_type(spelling):
+    """
+    Get the base type from spelling, removing const/volatile/restrict specifiers and pointers.
+    """
+    m = BASE_TYPE_RE.match(spelling)
+    if not m:
+        print("FIXME: ", spelling)
+    return (m.group(1) if m.group(3) else m.group(2)).strip() if m else spelling
+
 class Visitor:
-    def __init__(self, header_path, clang_path=None, libclang_path=None, clang_args=[], include_headers=[], include_patterns=[], exclude_patterns=[], type_objects=False, skip_defines=False):
+    def __init__(self, header_path, clang_path=None, libclang_path=None, clang_args=[], include_headers=[], include_patterns=[], exclude_patterns=[], type_objects=False, skip_defines=False, language="c"):
         if libclang_path:
             if os.path.exists(libclang_path):
                 try:
@@ -447,23 +426,28 @@ class Visitor:
         self.parsed_headers = set()
         self.potential_constants = []
         self.clang_path = clang_path if clang_path else "clang"
-        include_headers = [re.compile(p) for p in include_headers] or [MATCH_ALL_RE]
-        self.include_patterns = [re.compile(p) for p in include_patterns] or None
-        self.exclude_patterns = [re.compile(p) for p in exclude_patterns] or None
+        def compile_all(patterns, default=None):
+            return [re.compile(p) for p in patterns] or default
+        self.include_patterns = compile_all(include_patterns)
+        self.exclude_patterns = compile_all(exclude_patterns)
+        self.language = language
 
         with tempfile.NamedTemporaryFile() as ast_file:
             clang_stdout = self.run_clang(header_path, ['-emit-ast'] + clang_args)
             ast_file.write(clang_stdout)
             tu = self.index.read(ast_file.name)
 
+        include_headers = compile_all(include_headers, default=[MATCH_ALL_RE])
         self.type_objects = type_objects
         self.skip_defines = skip_defines
         for cursor in tu.cursor.get_children():
             self.process(cursor, include_headers)
-        type_defs = [t for t in Type.type_declarations.values()]
+        type_defs = [t for t in Type.type_declarations.values() if self.test_definition(t.name)]
         self.defs = type_defs + self.defs
         if not skip_defines:
             self.process_marked_macros(header_path, clang_args)
+        self._definitions = [d.to_dict(is_declaration=True) for d in self.defs]
+        self.typedefs = { x["name"]: x["type"]["spelling"] for x in self.typedef_definitions() }
 
     def run_clang(self, header_path, clang_args=[], source=None):
         clang_cmd = [self.clang_path]
@@ -483,15 +467,13 @@ class Visitor:
         if self.exclude_patterns:
             if any(pattern.search(def_name) for pattern in self.exclude_patterns):
                 if self.include_patterns:
-                    if not any(pattern.search(def_name) for pattern in self.include_patterns):
-                        return False
+                    return any(pattern.search(def_name) for pattern in self.include_patterns)
                 else:
                     return False
-        elif self.include_patterns:
-            return any(pattern.search(def_name) for pattern in self.include_patterns)
+            else:
+                return True
         else:
             return True
-
 
     def process(self, cursor, include_patterns):
         try:
@@ -528,7 +510,6 @@ class Visitor:
     def process_type(self, t):
         new_declaration = Type.from_clang(t)
 
-
     def mark_macros(self, filepath):
         with open(filepath) as f:
             for line in f:
@@ -538,10 +519,20 @@ class Visitor:
 
     def process_marked_macros(self, header_path, clang_args=[]):
         with tempfile.NamedTemporaryFile(suffix='.pch') as pch_file:
-            clang_stdout = self.run_clang(header_path, ['-x', 'c++-header' if IS_CPLUSPLUSHEADER else 'c-header', '-Xclang', '-emit-pch'] + clang_args)
+            clang_stdout = self.run_clang(header_path, ['-x', 'c++-header' if self.language in ["c++", "cplusplus"] else 'c-header', '-Xclang', '-emit-pch'] + clang_args)
             pch_file.write(clang_stdout)
 
-            clang_args = ['-x', 'c++' if IS_CPLUSPLUSHEADER else 'c', '-emit-ast', '-include-pch', pch_file.name] + clang_args
+            lang = self.language
+            match self.language:
+                case "c":
+                    lang = "c"
+                case "objc" | "objective-c":
+                    lang = "objective-c"
+                case "c++" | "cplusplus":
+                    lang = "c++"
+                case _:
+                    raise ValueError(f"Unknown language `{lang}`")
+            clang_args = ['-x', lang, '-emit-ast', '-include-pch', pch_file.name] + clang_args
             for identifier in self.potential_constants:
                 if not self.test_definition(identifier):
                     continue
@@ -558,45 +549,69 @@ class Visitor:
                     # this macro is not a const value, skip
                     pass
 
+    def all_definitions(self):
+        return self._definitions
 
-TYPE_COMPONENTS_RE = re.compile(r'([^(]*\(\**|[^[]*)(.*)')
-def typed_declaration(spelling, identifier):
-    """
-    Utility to form a typed declaration from a C type and identifier.
-    This correctly handles array lengths and function pointer arguments.
-    """
-    m = TYPE_COMPONENTS_RE.match(spelling)
-    return '{base_or_return_type}{maybe_space}{identifier}{maybe_array_or_arguments}'.format(
-        base_or_return_type=m.group(1),
-        maybe_space='' if m.group(2) else ' ',
-        identifier=identifier,
-        maybe_array_or_arguments=m.group(2) or '',
-    )
+    def find_definitions_by(self, key, value):
+        return [x for x in self._definitions if x[key] == value]
 
+    def definitions_by_kind(self, kind):
+        return self.find_definitions_by('kind', kind)
 
-BASE_TYPE_RE = re.compile(r'(?:\b(?:const|volatile|restrict)\b\s*)*(([^[*(]+)(\(?).*)')
-def base_type(spelling):
-    """
-    Get the base type from spelling, removing const/volatile/restrict specifiers and pointers.
-    """
-    m = BASE_TYPE_RE.match(spelling)
-    if not m:
-        print("FIXME: ", spelling)
-    return (m.group(1) if m.group(3) else m.group(2)).strip() if m else spelling
+    def typedef_definitions(self):
+        return self.definitions_by_kind('typedef')
+
+    def enum_definitions(self):
+        return self.definitions_by_kind('enum')
+
+    def struct_definitions(self):
+        return self.definitions_by_kind('struct')
+
+    def function_definitions(self):
+        return self.definitions_by_kind('function')
+
+    def has_typedef(self, name):
+        return name in self.typedefs.keys()
+
+    def get_typedef(self, name):
+        return self.typedefs[name] if self.has_typedef(name) else None
+
 
 def definitions_from_header(*args, **kwargs):
-    visitor = Visitor(*args, **kwargs)
-    return [d.to_dict(is_declaration=True) for d in visitor.defs]
+    return Visitor(*args, **kwargs).all_definitions()
+
+class Generator:
+    def __init__(self, visitor: Visitor, template: str, name: str = None, bind_to: str = None):
+        self.visitor = visitor
+        self.template = template
+        if not os.path.exists(self.template):
+            raise ValueError(f"No template exists at {self.template}")
+        self.env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath="./"))
+        self.name = name or os.path.splitext(os.path.basename(self.template))[0]
+        self.bind = bind_to or self.name
+
+    def add_functions(self, *args, **kwargs):
+        self.env.globals.update(*args, **kwargs)
+
+    def process(self, *args, **kwargs):
+        template = self.env.get_template(self.template)
+        return template.render(structs=self.visitor.struct_definitions(),
+                               functions=self.visitor.function_definitions(),
+                               enums=self.visitor.enum_definitions(),
+                               typedefs=self.visitor.typedefs,
+                               name=self.name,
+                               bind_name=self.bind,
+                               *args, **kwargs)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Serialise C headers to JSON w/ python + libclang!")
+    parser = argparse.ArgumentParser(description="Serialise C headers to Lua C bindings w/ python + libclang!")
     parser.add_argument("headers", metavar="HEADERS", type=str, nargs="+",
                         help="Path to header file(s) to process")
     parser.add_argument("-c", "--clang", metavar="PATH", type=str,
                         help="Specify the path to `clang`")
-    parser.add_argument("-x", "--args", metavar="ARGS", type=str, nargs="+",
+    parser.add_argument("-a", "--args", metavar="ARGS", type=str, nargs="+",
                         help="Pass arguments through to clang")
-    parser.add_argument("-l", "--lib", metavar="PATH", type=str,
+    parser.add_argument("-L", "--lib", metavar="PATH", type=str,
                         help="Specify the path to clang library or directory")
     parser.add_argument("-i", "--include-headers", metavar="FILTER", type=str, nargs="+",
                         help="Only process headers with names that match any of the given regex patterns. Matches are tested using `re.search`, so patterns are not anchored by default. This may be used to avoid processing standard headers and dependencies headers.")
@@ -614,48 +629,46 @@ if __name__ == '__main__':
                         help="Output type objects instead of simply the type spelling string")
     parser.add_argument("-m", "--minified", action="store_true",
                         help="Output minified JSON instead of using 0 space indentations")
-    # TODO: This should be changed to a str, specify clang -x directly, this will do for now
-    parser.add_argument("-C", "--cplusplus", action="store_true",
-                        help="Set `-x c++-header` when running clang")
+    parser.add_argument("-x", "--language", action="store_true",
+                        help="Set `-x {lang}` when running clang")
     args = parser.parse_args()
-    
-    if args.cplusplus:
-        IS_CPLUSPLUSHEADER = True
 
     for header in args.headers:
+        if not header:
+            continue
         if not os.path.exists(header) or not os.path.isfile(header):
-            print("ERROR! Path \"{header}\" doesn't exist")
-            sys.exit(1)
-        else:
-            try:
-                definitions = definitions_from_header(header,
-                                                      clang_path=args.clang if args.clang else None,
-                                                      clang_args=args.args if args.args else [],
-                                                      libclang_path=args.lib,
-                                                      include_patterns=args.include_definitions if args.include_definitions else [],
-                                                      exclude_patterns=args.exclude_definitions if args.exclude_definitions else[],
-                                                      type_objects=args.type_objects,
-                                                      skip_defines=args.skip_defines)
-                signal(SIGPIPE, SIG_DFL)
-                json = json.dumps(definitions,
-                                  indent=None if args.minified else 4,
-                                  separators=(',', ':') if args.minified else None)
-                if args.output:
-                    if os.path.exists(args.output):
-                        if os.path.isfile(args.output):
-                            if not args.writeover:
-                                print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
-                        else:
-                            parts = header.split("/")
-                            folder = args.output[:-1] if args.output[-1] == '/' else args.output
-                            name = ".".join(parts[-1].split(".")[:-1])
-                            args.output = f"{folder}/{name}.json"
-                            print(args.output)
-                            if (os.path.exists(args.output) and os.path.isfile(args.output)) and not args.writeover:
-                                print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
-                    with open(args.output, "w") as fh:
-                        fh.write(json)
-                else:
-                    print(json, end='')
-            except CompilationError as e:
-                pass
+            print(f"ERROR! Path \"{header}\" doesn't exist")
+            continue
+        try:
+            visitor = Visitor(header,
+                clang_path=args.clang if args.clang else None,
+                clang_args=args.args if args.args else [],
+                libclang_path=args.lib,
+                include_patterns=args.include_definitions if args.include_definitions else [],
+                exclude_patterns=args.exclude_definitions if args.exclude_definitions else [],
+                type_objects=args.type_objects,
+                skip_defines=args.skip_defines,
+                language=args.language if args.language else "c")
+            signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+            json = json.dumps(visitor.all_definitions(),
+                                indent=None if args.minified else 4,
+                                separators=(',', ':') if args.minified else None)
+            if args.output:
+                if os.path.exists(args.output):
+                    if os.path.isfile(args.output):
+                        if not args.writeover:
+                            print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+                    else:
+                        parts = header.split("/")
+                        folder = args.output[:-1] if args.output[-1] == '/' else args.output
+                        name = ".".join(parts[-1].split(".")[:-1])
+                        args.output = f"{folder}/{name}.json"
+                        print(args.output)
+                        if (os.path.exists(args.output) and os.path.isfile(args.output)) and not args.writeover:
+                            print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+                with open(args.output, "w") as fh:
+                    fh.write(json)
+            else:
+                print(json, end='')
+        except CompilationError as e:
+            pass
