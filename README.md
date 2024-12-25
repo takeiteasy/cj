@@ -60,7 +60,7 @@ python3 -m pip install -r requirements.txt
 python3 cj.py [headers] [options]
 ```
 
-Alternatively, if you have docker run the ```./cj``` script.
+Alternatively, you can use the ```cj-docker``` script to build and run inside docker.
 
 ## LICENSE
 ```

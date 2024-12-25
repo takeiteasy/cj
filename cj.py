@@ -30,8 +30,6 @@ import re, sys, os, subprocess, signal, tempfile, argparse, json
 from collections import OrderedDict
 from pathlib import Path, PurePath
 import clang.cindex as clang
-import jinja2, os
-import platform
 
 ANONYMOUS_SUB_RE = re.compile(r'(.*/|\W)')
 UNION_STRUCT_NAME_RE = re.compile(r'(union|struct)\s+(.+)')
@@ -577,31 +575,8 @@ class Visitor:
         return self.typedefs[name] if self.has_typedef(name) else None
 
 
-def definitions_from_header(*args, **kwargs):
+def defs(*args, **kwargs):
     return Visitor(*args, **kwargs).all_definitions()
-
-class Generator:
-    def __init__(self, visitor: Visitor, template: str, name: str = None, bind_to: str = None):
-        self.visitor = visitor
-        self.template = template
-        if not os.path.exists(self.template):
-            raise ValueError(f"No template exists at {self.template}")
-        self.env = jinja2.Environment(loader=jinja2.FileSystemLoader(searchpath="./"))
-        self.name = name or os.path.splitext(os.path.basename(self.template))[0]
-        self.bind = bind_to or self.name
-
-    def add_functions(self, *args, **kwargs):
-        self.env.globals.update(*args, **kwargs)
-
-    def process(self, *args, **kwargs):
-        template = self.env.get_template(self.template)
-        return template.render(structs=self.visitor.struct_definitions(),
-                               functions=self.visitor.function_definitions(),
-                               enums=self.visitor.enum_definitions(),
-                               typedefs=self.visitor.typedefs,
-                               name=self.name,
-                               bind_name=self.bind,
-                               *args, **kwargs)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Serialise C headers to Lua C bindings w/ python + libclang!")

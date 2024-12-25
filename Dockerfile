@@ -31,5 +31,4 @@ RUN apt update && \
                 libclang-dev \
                 python3-clang \
                 python3-pip \
-                python3-jinja2 \
                 -y
