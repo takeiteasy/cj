@@ -639,36 +639,33 @@ if __name__ == '__main__':
         if not os.path.exists(header) or not os.path.isfile(header):
             print(f"ERROR! Path \"{header}\" doesn't exist")
             continue
-        try:
-            visitor = Visitor(header,
-                clang_path=args.clang if args.clang else None,
-                clang_args=args.args if args.args else [],
-                libclang_path=args.lib,
-                include_patterns=args.include_definitions if args.include_definitions else [],
-                exclude_patterns=args.exclude_definitions if args.exclude_definitions else [],
-                type_objects=args.type_objects,
-                skip_defines=args.skip_defines,
-                language=args.language if args.language else "c")
-            signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-            json = json.dumps(visitor.all_definitions(),
-                                indent=None if args.minified else 4,
-                                separators=(',', ':') if args.minified else None)
-            if args.output:
-                if os.path.exists(args.output):
-                    if os.path.isfile(args.output):
-                        if not args.writeover:
-                            print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
-                    else:
-                        parts = header.split("/")
-                        folder = args.output[:-1] if args.output[-1] == '/' else args.output
-                        name = ".".join(parts[-1].split(".")[:-1])
-                        args.output = f"{folder}/{name}.json"
-                        print(args.output)
-                        if (os.path.exists(args.output) and os.path.isfile(args.output)) and not args.writeover:
-                            print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
-                with open(args.output, "w") as fh:
-                    fh.write(json)
-            else:
-                print(json, end='')
-        except CompilationError as e:
-            pass
+        visitor = Visitor(header,
+            clang_path=args.clang if args.clang else None,
+            clang_args=args.args if args.args else [],
+            libclang_path=args.lib,
+            include_patterns=args.include_definitions if args.include_definitions else [],
+            exclude_patterns=args.exclude_definitions if args.exclude_definitions else [],
+            type_objects=args.type_objects,
+            skip_defines=args.skip_defines,
+            language=args.language if args.language else "c")
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+        json = json.dumps(visitor.all_definitions(),
+                            indent=None if args.minified else 4,
+                            separators=(',', ':') if args.minified else None)
+        if args.output:
+            if os.path.exists(args.output):
+                if os.path.isfile(args.output):
+                    if not args.writeover:
+                        print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+                else:
+                    parts = header.split("/")
+                    folder = args.output[:-1] if args.output[-1] == '/' else args.output
+                    name = ".".join(parts[-1].split(".")[:-1])
+                    args.output = f"{folder}/{name}.json"
+                    print(args.output)
+                    if (os.path.exists(args.output) and os.path.isfile(args.output)) and not args.writeover:
+                        print(f"ERROR! File already exists at `{args.output}`, use -w/--writeover to overwrite file")
+            with open(args.output, "w") as fh:
+                fh.write(json)
+        else:
+            print(json, end='')

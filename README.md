@@ -7,37 +7,37 @@ __CJ__ is a script to serialise C headers to JSON with libclang -- forked from [
 ## Usage
 
 ```
-usage: cj.py [-h] [-c PATH] [-x ARGS [ARGS ...]] [-l PATH]
-             [-i FILTER [FILTER ...]]
-             [--include-definitions FILTER [FILTER ...]]
-             [--exclude-definitions FILTER [FILTER ...]] [-o PATH] [-w] [-s]
-             [-t] [-m] [-d]
+usage: cj.py [-h] [-c PATH] [-a ARGS [ARGS ...]] [-L PATH]
+             [-i FILTER [FILTER ...]] [-d FILTER [FILTER ...]]
+             [-D FILTER [FILTER ...]] [-o PATH] [-w] [-s] [-t] [-m] [-x]
              HEADERS [HEADERS ...]
 
-Serialise C headers to JSON w/ python + libclang!
+Serialise C headers to Lua C bindings w/ python + libclang!
 
 positional arguments:
   HEADERS               Path to header file(s) to process
 
 options:
   -h, --help            show this help message and exit
-  -c, --clang PATH      Specify the path to `clang`
-  -a, --args ARGS [ARGS ...]
+  -c PATH, --clang PATH
+                        Specify the path to `clang`
+  -a ARGS [ARGS ...], --args ARGS [ARGS ...]
                         Pass arguments through to clang
-  -l, --lib PATH        Specify the path to clang library or directory
-  -i, --include-headers FILTER [FILTER ...]
+  -L PATH, --lib PATH   Specify the path to clang library or directory
+  -i FILTER [FILTER ...], --include-headers FILTER [FILTER ...]
                         Only process headers with names that match any of the
                         given regex patterns. Matches are tested using
                         `re.search`, so patterns are not anchored by default.
                         This may be used to avoid processing standard headers
                         and dependencies headers.
-  --include-definitions FILTER [FILTER ...]
+  -d FILTER [FILTER ...], --include-definitions FILTER [FILTER ...]
                         Only include definitions that match given regex
                         filters
-  --exclude-definitions FILTER [FILTER ...]
+  -D FILTER [FILTER ...], --exclude-definitions FILTER [FILTER ...]
                         Exclude any definitions that match given regex filters
                         (NOTE: Overwriten by `--include-definitions` option)
-  -o, --output PATH     Specify the file or directory to dump JSON to.
+  -o PATH, --output PATH
+                        Specify the file or directory to dump JSON to.
                         (default: dump to stdout)
   -w, --writeover       If the output destination exists, overwrite it.
   -s, --skip-defines    By default, cj will try compiling object-like macros
@@ -48,7 +48,7 @@ options:
                         spelling string
   -m, --minified        Output minified JSON instead of using 0 space
                         indentations
-  -x, --language       Set `-x {lang}` when running clang"
+  -x, --language        Set `-x {lang}` when running clang
 ```
 
 __CJ__ relies on libclang and clang's python module, here's how to set it up:
