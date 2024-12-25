@@ -22,7 +22,7 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   -c, --clang PATH      Specify the path to `clang`
-  -x, --args ARGS [ARGS ...]
+  -a, --args ARGS [ARGS ...]
                         Pass arguments through to clang
   -l, --lib PATH        Specify the path to clang library or directory
   -i, --include-headers FILTER [FILTER ...]
@@ -48,7 +48,7 @@ options:
                         spelling string
   -m, --minified        Output minified JSON instead of using 0 space
                         indentations
-  -C, --cplusplus       Set `-x c++-header` when running clang
+  -x, --language       Set `-x {lang}` when running clang"
 ```
 
 __CJ__ relies on libclang and clang's python module, here's how to set it up:
@@ -56,13 +56,11 @@ __CJ__ relies on libclang and clang's python module, here's how to set it up:
 ```
 python3 -m venv env
 source env/bin/activate
-python3 -m pip install clang
-python3 cj.py [header-file]
+python3 -m pip install -r requirements.txt
+python3 cj.py [headers] [options]
 ```
 
-If you are getting a `clang.cindex.LibclangError` error, you will have to specify the path to libclang with the  `--lib` option. If you are getting any other error, check your libclang version and the python module's version.
-
-If you are on Mac (arm) and you're getting `clang.cindex.TranslationUnitLoadError` errors, what worked for me is `--lib /Library/Developer/CommandLineTools/usr/lib/libclang.dylib`.
+Alternatively, if you have docker run the ```./cj``` script.
 
 ## LICENSE
 ```
