@@ -1,4 +1,4 @@
-/* hate -- https://github.com/takeiteasy/hate 
+/* https://github.com/takeiteasy/cj
 
  Copyright (C) 2024 George Watson
 
@@ -71,7 +71,7 @@ static {{ struct['name'] }} lua_check{{ struct['name'] }}(lua_State *L, int inde
 static int lua_{{ func['name'] }}(lua_State *L) {
     {% if func['arguments'] | count > 0 %}
     {% for i, arg in func['arguments'] | enumerate %}
-    {{ return_type_from_lua(arg['type']) }} {{ arg['name'] }} = {{ field_from_lua(arg['type']) }}(L, {{ i + 1 }}); 
+    {{ return_type_from_lua(arg['type']) }} {{ arg['name'] }} = {{ field_from_lua(arg['type']) }}(L, {{ i + 1 }});
     {% endfor %}
     {% endif %}
     {% if func['return_type']['kind'] != "void" %}
