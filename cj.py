@@ -456,6 +456,7 @@ class Visitor:
         else:
             clang_cmd.append(header_path)
         stderr = subprocess.DEVNULL if source else None
+        # print(clang_cmd)
         clang_result = subprocess.run(clang_cmd, input=source, stdout=subprocess.PIPE, stderr=stderr)
         if clang_result.returncode != 0:
             raise CompilationError(clang_result.stderr)
@@ -584,7 +585,7 @@ if __name__ == '__main__':
                         help="Path to header file(s) to process")
     parser.add_argument("-c", "--clang", metavar="PATH", type=str,
                         help="Specify the path to `clang`")
-    parser.add_argument("-a", "--args", metavar="ARGS", type=str, nargs="+",
+    parser.add_argument("-a", "--xargs", metavar="ARGS", type=str, nargs="+",
                         help="Pass arguments through to clang")
     parser.add_argument("-L", "--lib", metavar="PATH", type=str,
                         help="Specify the path to clang library or directory")
@@ -616,7 +617,7 @@ if __name__ == '__main__':
             continue
         visitor = Visitor(header,
             clang_path=args.clang if args.clang else None,
-            clang_args=args.args if args.args else [],
+            clang_args=[x.strip() for x in args.xargs] if args.xargs else [],
             libclang_path=args.lib,
             include_patterns=args.include_definitions if args.include_definitions else [],
             exclude_patterns=args.exclude_definitions if args.exclude_definitions else [],

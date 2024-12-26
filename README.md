@@ -21,7 +21,7 @@ options:
   -h, --help            show this help message and exit
   -c PATH, --clang PATH
                         Specify the path to `clang`
-  -a ARGS [ARGS ...], --args ARGS [ARGS ...]
+  -a ARGS [ARGS ...], --xargs ARGS [ARGS ...]
                         Pass arguments through to clang
   -L PATH, --lib PATH   Specify the path to clang library or directory
   -i FILTER [FILTER ...], --include-headers FILTER [FILTER ...]
